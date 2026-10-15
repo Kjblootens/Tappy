@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.provider.Settings
 import android.view.accessibility.AccessibilityEvent
+import android.widget.Toast
 
 /**
  * Watches the foreground window. While a block is active it:
@@ -16,6 +17,8 @@ import android.view.accessibility.AccessibilityEvent
 class BlockerService : AccessibilityService() {
 
     private var lastBounceAt = 0L
+    private var protectedFor = -1L
+    private var protectedPackages = emptySet<String>()
     private var lastGuardCheckAt = 0L
     private lateinit var appLabel: String
 
@@ -40,7 +43,7 @@ class BlockerService : AccessibilityService() {
         try {
             if (root.packageName?.toString() != pkg) return
 
-            if (pkg in state.blockedPackages) {
+            if (pkg in state.blockedPackages && !isProtected(pkg, state)) {
                 bounce(BlockedActivity.REASON_APP, pkg)
                 return
             }
@@ -66,10 +69,24 @@ class BlockerService : AccessibilityService() {
             pkg == "com.miui.securitycenter" ||
             pkg == "com.google.android.permissioncontroller"
 
+    /** Protected apps are resolved once per block; default apps rarely change mid-block. */
+    private fun isProtected(pkg: String, state: TappyStore.State): Boolean {
+        if (protectedFor != state.blockStartedAt) {
+            protectedPackages = ProtectedApps.packages(this)
+            protectedFor = state.blockStartedAt
+        }
+        return pkg in protectedPackages
+    }
+
     private fun bounce(reason: String, pkg: String) {
         val now = SystemClock.uptimeMillis()
         if (now - lastBounceAt < 600) return
         lastBounceAt = now
+        // Past the auto-unlock time: end the block instead of bouncing.
+        if (BlockController.checkAutoUnlock(this)) {
+            Toast.makeText(this, BlockController.describe(this, BlockController.TagResult.AUTO_RELEASED), Toast.LENGTH_SHORT).show()
+            return
+        }
         performGlobalAction(GLOBAL_ACTION_HOME)
         startActivity(
             Intent(this, BlockedActivity::class.java)

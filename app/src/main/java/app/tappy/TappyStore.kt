@@ -13,17 +13,31 @@ object TappyStore {
         val blocking: Boolean = false,
         val blockedPackages: Set<String> = emptySet(),
         val pairedTagId: String? = null,
-        val blockStartedAt: Long = 0L,
         val emergencyUnlocksLeft: Int = EMERGENCY_UNLOCKS,
+        /** Daily auto-unlock setting; only editable while not blocking. */
+        val autoUnlockEnabled: Boolean = true,
+        val autoUnlockMinuteOfDay: Int = DEFAULT_AUTO_UNLOCK_MINUTE,
+        /** When the current block started, by wall clock, uptime clock and boot number. */
+        val blockStartedAt: Long = 0L,
+        val blockStartedElapsed: Long = 0L,
+        val blockStartedBootCount: Int = -1,
+        /** Wall-clock time the current block ends by itself, or 0 for never. Fixed when the block starts. */
+        val autoUnlockAt: Long = 0L,
     )
 
     const val EMERGENCY_UNLOCKS = 3
+    const val DEFAULT_AUTO_UNLOCK_MINUTE = 22 * 60
 
     private const val KEY_BLOCKING = "blocking"
     private const val KEY_PACKAGES = "blocked_packages"
     private const val KEY_TAG = "paired_tag"
-    private const val KEY_STARTED = "block_started_at"
     private const val KEY_EMERGENCY = "emergency_unlocks_left"
+    private const val KEY_AUTO_ENABLED = "auto_unlock_enabled"
+    private const val KEY_AUTO_MINUTE = "auto_unlock_minute"
+    private const val KEY_STARTED = "block_started_at"
+    private const val KEY_STARTED_ELAPSED = "block_started_elapsed"
+    private const val KEY_STARTED_BOOT = "block_started_boot"
+    private const val KEY_AUTO_AT = "auto_unlock_at"
 
     private lateinit var prefs: SharedPreferences
     private val _state = MutableStateFlow(State())
@@ -36,8 +50,13 @@ object TappyStore {
             blocking = prefs.getBoolean(KEY_BLOCKING, false),
             blockedPackages = prefs.getStringSet(KEY_PACKAGES, emptySet())!!.toSet(),
             pairedTagId = prefs.getString(KEY_TAG, null),
-            blockStartedAt = prefs.getLong(KEY_STARTED, 0L),
             emergencyUnlocksLeft = prefs.getInt(KEY_EMERGENCY, EMERGENCY_UNLOCKS),
+            autoUnlockEnabled = prefs.getBoolean(KEY_AUTO_ENABLED, true),
+            autoUnlockMinuteOfDay = prefs.getInt(KEY_AUTO_MINUTE, DEFAULT_AUTO_UNLOCK_MINUTE),
+            blockStartedAt = prefs.getLong(KEY_STARTED, 0L),
+            blockStartedElapsed = prefs.getLong(KEY_STARTED_ELAPSED, 0L),
+            blockStartedBootCount = prefs.getInt(KEY_STARTED_BOOT, -1),
+            autoUnlockAt = prefs.getLong(KEY_AUTO_AT, 0L),
         )
     }
 
@@ -49,13 +68,18 @@ object TappyStore {
             .putBoolean(KEY_BLOCKING, next.blocking)
             .putStringSet(KEY_PACKAGES, next.blockedPackages)
             .putString(KEY_TAG, next.pairedTagId)
-            .putLong(KEY_STARTED, next.blockStartedAt)
             .putInt(KEY_EMERGENCY, next.emergencyUnlocksLeft)
+            .putBoolean(KEY_AUTO_ENABLED, next.autoUnlockEnabled)
+            .putInt(KEY_AUTO_MINUTE, next.autoUnlockMinuteOfDay)
+            .putLong(KEY_STARTED, next.blockStartedAt)
+            .putLong(KEY_STARTED_ELAPSED, next.blockStartedElapsed)
+            .putInt(KEY_STARTED_BOOT, next.blockStartedBootCount)
+            .putLong(KEY_AUTO_AT, next.autoUnlockAt)
             .commit()
         _state.value = next
     }
 
-    /** Selection and pairing are frozen while a block is active. */
+    /** Selection, pairing and the auto-unlock time are frozen while a block is active. */
     fun setBlockedPackages(packages: Set<String>): Boolean {
         if (_state.value.blocking) return false
         update { it.copy(blockedPackages = packages) }
@@ -68,14 +92,30 @@ object TappyStore {
         return true
     }
 
-    fun setBlocking(blocking: Boolean) = update {
-        it.copy(blocking = blocking, blockStartedAt = if (blocking) System.currentTimeMillis() else 0L)
+    fun setAutoUnlock(enabled: Boolean, minuteOfDay: Int): Boolean {
+        if (_state.value.blocking) return false
+        update { it.copy(autoUnlockEnabled = enabled, autoUnlockMinuteOfDay = minuteOfDay) }
+        return true
+    }
+
+    fun startBlock(startedAt: Long, startedElapsed: Long, bootCount: Int, autoUnlockAt: Long) = update {
+        it.copy(
+            blocking = true,
+            blockStartedAt = startedAt,
+            blockStartedElapsed = startedElapsed,
+            blockStartedBootCount = bootCount,
+            autoUnlockAt = autoUnlockAt,
+        )
+    }
+
+    fun endBlock() = update {
+        it.copy(blocking = false, blockStartedAt = 0L, blockStartedElapsed = 0L, blockStartedBootCount = -1, autoUnlockAt = 0L)
     }
 
     fun consumeEmergencyUnlock(): Boolean {
-        val s = _state.value
-        if (!s.blocking || s.emergencyUnlocksLeft <= 0) return false
-        update { it.copy(blocking = false, blockStartedAt = 0L, emergencyUnlocksLeft = it.emergencyUnlocksLeft - 1) }
+        if (!_state.value.blocking || _state.value.emergencyUnlocksLeft <= 0) return false
+        update { it.copy(emergencyUnlocksLeft = it.emergencyUnlocksLeft - 1) }
+        endBlock()
         return true
     }
 }

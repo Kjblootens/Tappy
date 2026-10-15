@@ -17,7 +17,7 @@ class NfcTagActivity : Activity() {
             val result = BlockController.onTagScanned(this, TagUtils.idOf(tag))
             // Unknown tags (bank cards, transit passes...) also land here via TECH_DISCOVERED; stay quiet for them.
             if (result != BlockController.TagResult.WRONG_TAG) {
-                Toast.makeText(applicationContext, BlockController.describe(result), Toast.LENGTH_SHORT).show()
+                Toast.makeText(applicationContext, BlockController.describe(this, result), Toast.LENGTH_SHORT).show()
             }
         }
         finish()

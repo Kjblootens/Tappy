@@ -1,5 +1,6 @@
 package app.tappy
 
+import android.app.TimePickerDialog
 import android.app.admin.DevicePolicyManager
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -7,6 +8,7 @@ import android.nfc.NfcAdapter
 import android.nfc.Tag
 import android.os.Bundle
 import android.provider.Settings
+import android.text.format.DateFormat
 import android.text.format.DateUtils
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -41,6 +43,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -59,6 +62,23 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.util.Calendar
+
+private const val HELP_TEXT = """Ways out of a block, easiest first:
+
+1. Tap your tag. If tapping from another app doesn't work, open Tappy and tap the tag here.
+
+2. Wait for the auto-unlock time (if it's on). The block ends the first time you use the phone after that time.
+
+3. Emergency unlock (3 in total, they never come back), at the bottom of this screen while blocking.
+
+4. Safe mode (normal mode only): hold power, long-press "Power off", choose safe mode. Tappy's blocker is off there, so you can deactivate its device admin (Settings → Security → Device admin apps) and uninstall it.
+
+5. From a computer with USB debugging on (turn it on now, before you need it):
+   adb shell settings put secure enabled_accessibility_services ""
+   This turns the blocker off; then deactivate the device admin and uninstall.
+
+In device-owner mode, safe mode is disabled and Tappy can't be uninstalled, so only 1–3 work. The last resort is a factory reset from recovery mode, which wipes the phone."""
 
 class MainActivity : ComponentActivity() {
 
@@ -85,6 +105,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (BlockController.checkAutoUnlock(this)) {
+            toast(BlockController.describe(this, BlockController.TagResult.AUTO_RELEASED))
+        }
         refreshSetup()
         // While Tappy is open, read tags here directly (pairing or toggling) instead of via NfcTagActivity.
         nfcAdapter?.enableReaderMode(
@@ -127,7 +150,7 @@ class MainActivity : ComponentActivity() {
             }
         } else {
             val result = BlockController.onTagScanned(this, id)
-            runOnUiThread { toast(BlockController.describe(result)) }
+            runOnUiThread { toast(BlockController.describe(this, result)) }
         }
     }
 
@@ -147,11 +170,16 @@ class MainActivity : ComponentActivity() {
 
     private fun loadApps(): List<AppEntry> {
         val pm = packageManager
+        val protected = ProtectedApps.packages(this)
+        // Drop protected apps picked before they were excluded (only possible while not blocking).
+        TappyStore.state.value.blockedPackages.let { selected ->
+            if (selected.any { it in protected }) TappyStore.setBlockedPackages(selected - protected)
+        }
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         return pm.queryIntentActivities(launcher, PackageManager.MATCH_ALL)
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
-            .filter { it.packageName != packageName }
+            .filter { it.packageName !in protected }
             .map { info ->
                 AppEntry(
                     packageName = info.packageName,
@@ -178,6 +206,7 @@ class MainActivity : ComponentActivity() {
             ) {
                 item { StatusCard(state) }
                 item { SetupCard(state) }
+                item { AutoUnlockCard(state) }
 
                 item {
                     Column(Modifier.padding(horizontal = 16.dp)) {
@@ -186,13 +215,11 @@ class MainActivity : ComponentActivity() {
                             style = MaterialTheme.typography.titleMedium,
                             modifier = Modifier.padding(top = 8.dp),
                         )
-                        if (state.blocking) {
-                            Text(
-                                "Locked while blocking.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
+                        Text(
+                            if (state.blocking) "Locked while blocking." else "Phone, Clock, Settings and your home screen can't be blocked.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                         OutlinedTextField(
                             value = query,
                             onValueChange = { query = it },
@@ -248,6 +275,7 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                 }
+                item { HelpCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
@@ -297,8 +325,9 @@ class MainActivity : ComponentActivity() {
                 Spacer(Modifier.height(4.dp))
                 val detail = when {
                     state.blocking -> "${state.blockedPackages.size} apps locked since " +
-                        DateUtils.getRelativeTimeSpanString(state.blockStartedAt) +
-                        ". Tap your tag to unlock."
+                        DateUtils.getRelativeTimeSpanString(state.blockStartedAt) + ". " +
+                        (if (state.autoUnlockAt != 0L) "Unlocks by itself at ${BlockController.formatUnlockTime(this@MainActivity, state.autoUnlockAt)}, or " else "") +
+                        "tap your tag to unlock."
                     state.pairedTagId == null -> "Pair a tag below to get started."
                     else -> "Tap your tag to block ${state.blockedPackages.size} apps."
                 }
@@ -360,6 +389,69 @@ class MainActivity : ComponentActivity() {
                         else -> BlockController.deactivateAdmin(this@MainActivity)
                     }
                     refreshSetup()
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun AutoUnlockCard(state: TappyStore.State) {
+        val minute = state.autoUnlockMinuteOfDay
+        val timeText = DateFormat.getTimeFormat(this).format(
+            Calendar.getInstance().apply {
+                set(Calendar.HOUR_OF_DAY, minute / 60)
+                set(Calendar.MINUTE, minute % 60)
+            }.time
+        )
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-unlock every day", style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        when {
+                            state.blocking -> "Can't be changed while blocking."
+                            state.autoUnlockEnabled -> "Blocks end by themselves at $timeText."
+                            else -> "Off: only your tag (or an emergency unlock) ends a block."
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (state.autoUnlockEnabled) {
+                        TextButton(
+                            onClick = {
+                                TimePickerDialog(
+                                    this@MainActivity,
+                                    { _, h, m -> TappyStore.setAutoUnlock(true, h * 60 + m) },
+                                    minute / 60,
+                                    minute % 60,
+                                    DateFormat.is24HourFormat(this@MainActivity),
+                                ).show()
+                            },
+                            enabled = !state.blocking,
+                        ) { Text("Unlock at $timeText") }
+                    }
+                }
+                Switch(
+                    checked = state.autoUnlockEnabled,
+                    onCheckedChange = { TappyStore.setAutoUnlock(it, minute) },
+                    enabled = !state.blocking,
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun HelpCard() {
+        var expanded by remember { mutableStateOf(false) }
+        Card(Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+            Column(Modifier.clickable { expanded = !expanded }.padding(16.dp)) {
+                Text(
+                    if (expanded) "If you get stuck" else "If you get stuck  ›",
+                    style = MaterialTheme.typography.titleMedium,
+                )
+                if (expanded) {
+                    Spacer(Modifier.height(8.dp))
+                    Text(HELP_TEXT, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -56,7 +56,9 @@ class BlockedActivity : ComponentActivity() {
         val (title, body) = if (reason == REASON_PROTECTED) {
             "Tappy is locked" to "Tappy's settings can't be changed and it can't be uninstalled while a block is active. Tap your tag to end the block first."
         } else {
-            "$label is blocked" to "Tap your Tappy tag to unlock your apps."
+            val at = TappyStore.state.value.autoUnlockAt
+            "$label is blocked" to "Tap your Tappy tag to unlock your apps." +
+                (if (at != 0L) " They'll also come back by themselves at ${BlockController.formatUnlockTime(this, at)}." else "")
         }
 
         setContent {

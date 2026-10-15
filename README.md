@@ -12,7 +12,9 @@ be uninstalled or switched off.
 | **Accessibility service** (`BlockerService`) | Watches the foreground window. When a blocked app comes to the front it sends you home and shows a "blocked" screen. |
 | **Device admin** (`TappyAdminReceiver`) | An active device admin can't be uninstalled until it's deactivated. |
 | **Self-protection** | While blocking, any Settings / package-installer screen that mentions Tappy (app info, uninstall dialog, accessibility toggle, device-admin deactivation) is bounced back to home. So you can't turn off the service, deactivate the admin, force-stop or uninstall Tappy until you tap your tag. |
+| **Auto-unlock** | Every block ends by itself at a daily time (10 PM by default). The time is set in the app and can only be changed while not blocking. The deadline is fixed when the block starts: a block started at 11 PM runs until 10 PM the next day. The block ends the first time you use the phone after that time (plus a backstop alarm). Moving the phone's clock forward doesn't end it early. |
 | **Emergency unlock** | 3 one-time unlocks in case you lose the tag. They never recharge. |
+| **Never-blocked apps** | The phone app, clock/alarm apps, Settings and the home screen can't be selected, so calls and alarms always come through. |
 
 A block won't start until the blocker service and uninstall protection are both on.
 
@@ -57,6 +59,19 @@ adb shell dpm set-device-owner app.tappy/.TappyAdminReceiver
 Re-add your accounts afterwards. To undo it, use **Remove owner** in Tappy (only available
 while not blocking).
 
+## If you get stuck
+
+The app has the same list under **If you get stuck**. Easiest first:
+
+1. Tap your tag. If tapping from another app doesn't work, open Tappy and tap it there.
+2. Wait for the auto-unlock time, if it's on.
+3. Use an emergency unlock (3 in total).
+4. Normal mode only: reboot into safe mode, deactivate Tappy's device admin and uninstall it.
+5. From a computer with USB debugging on:
+   `adb shell settings put secure enabled_accessibility_services ""`, then deactivate the admin and uninstall.
+
+In device-owner mode only 1–3 work. The last resort is a factory reset.
+
 ## Limits worth knowing
 
 - Without device-owner mode, booting into **safe mode** disables third-party accessibility
@@ -64,5 +79,7 @@ while not blocking).
   it can be deactivated in safe mode. A factory reset always wins.
 - The settings guard matches Tappy's name on screen. OEM settings apps with very different
   package names may slip through; the device admin still stops an uninstall outright.
+- The auto-unlock clock check holds within one boot. After a reboot it falls back to the
+  phone's clock, so rebooting *and* moving the clock forward would end a block early.
 - Tags are matched by UID, which is unique per tag but not cryptographically secure. It's a
   self-control tool, not a security product.
