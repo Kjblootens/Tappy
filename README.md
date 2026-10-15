@@ -33,7 +33,9 @@ run's artifacts.
 ## Setup on the phone
 
 1. Open Tappy, turn on NFC if needed.
-2. **Pair** a tag and hold it to the back of the phone. Any NTAG213/215/216 sticker or keyfob works.
+2. **Pair** a tag and hold it to the back of the phone. Any NTAG213/215/216 (or MIFARE Ultralight)
+   sticker or keyfob works. Bank and travel cards are refused, so tapping one by accident
+   during pairing does nothing.
 3. **App blocker service** → *Open* → Accessibility → Tappy → on.
    On Android 13+ a sideloaded app's accessibility toggle is greyed out at first: go to
    *Settings → Apps → Tappy → ⋮ → Allow restricted settings*, then try again.

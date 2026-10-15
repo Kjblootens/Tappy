@@ -3,6 +3,8 @@ package app.tappy
 import android.nfc.NdefMessage
 import android.nfc.NdefRecord
 import android.nfc.Tag
+import android.nfc.tech.IsoDep
+import android.nfc.tech.MifareUltralight
 import android.nfc.tech.Ndef
 import android.nfc.tech.NdefFormatable
 import android.util.Log
@@ -10,6 +12,13 @@ import android.util.Log
 object TagUtils {
 
     const val TOGGLE_URI = "tappy://toggle"
+
+    /**
+     * Only NFC Forum Type 2 stickers/keyfobs (NTAG21x, MIFARE Ultralight) can be paired.
+     * Bank and travel cards are ISO-DEP smart cards, so they're rejected before anything is written.
+     */
+    fun isPairable(tag: Tag): Boolean =
+        MifareUltralight::class.java.name in tag.techList && IsoDep::class.java.name !in tag.techList
 
     fun idOf(tag: Tag): String = tag.id.joinToString("") { "%02X".format(it) }
 

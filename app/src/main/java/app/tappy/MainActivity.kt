@@ -139,6 +139,11 @@ class MainActivity : ComponentActivity() {
     private fun onTag(tag: Tag) {
         val id = TagUtils.idOf(tag)
         if (pairing) {
+            if (!TagUtils.isPairable(tag)) {
+                // Keep the dialog open so the right tag can be tapped next; nothing was written.
+                runOnUiThread { toast("That's a card, not a tag. Use an NFC sticker or keyfob (NTAG213/215/216).") }
+                return
+            }
             val wrote = TagUtils.writeLaunchRecord(tag, packageName)
             runOnUiThread {
                 pairing = false

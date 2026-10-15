@@ -15,7 +15,7 @@ class NfcTagActivity : Activity() {
         val tag = IntentCompat.getParcelableExtra(intent, NfcAdapter.EXTRA_TAG, Tag::class.java)
         if (tag != null) {
             val result = BlockController.onTagScanned(this, TagUtils.idOf(tag))
-            // Unknown tags (bank cards, transit passes...) also land here via TECH_DISCOVERED; stay quiet for them.
+            // Other people's stickers can also land here via TECH_DISCOVERED; stay quiet for them.
             if (result != BlockController.TagResult.WRONG_TAG) {
                 Toast.makeText(applicationContext, BlockController.describe(this, result), Toast.LENGTH_SHORT).show()
             }
